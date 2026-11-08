@@ -13,6 +13,11 @@ const voices = [
   ['Zephyr', 'Brillante'], ['Puck', 'Animada'], ['Charon', 'Informativa'], ['Kore', 'Firme'], ['Fenrir', 'Enérgica'], ['Leda', 'Juvenil'], ['Orus', 'Firme'], ['Aoede', 'Ligera'], ['Callirrhoe', 'Relajada'], ['Autonoe', 'Brillante'], ['Enceladus', 'Aireada'], ['Iapetus', 'Clara'], ['Umbriel', 'Relajada'], ['Algieba', 'Suave'], ['Despina', 'Suave'], ['Erinome', 'Clara'], ['Algenib', 'Grave'], ['Rasalgethi', 'Informativa'], ['Laomedeia', 'Animada'], ['Achernar', 'Dulce'], ['Alnilam', 'Firme'], ['Schedar', 'Serena'], ['Gacrux', 'Madura'], ['Pulcherrima', 'Expresiva'], ['Achird', 'Amable'], ['Zubenelgenubi', 'Casual'], ['Vindemiatrix', 'Gentil'], ['Sadachbia', 'Vivaz'], ['Sadaltager', 'Amable'], ['Sulafat', 'Cálida']
 ];
 const makeMessage = (role, text) => ({ id: `${Date.now()}-${Math.random()}`, role, text });
+function spokenText(text) {
+  return (text.split(/(?:Corrección|Correction|Sugerencia|Suggestion)\s*:|✍️/iu)[0] || '')
+    .replace(/[\p{Extended_Pictographic}\p{Regional_Indicator}\uFE0F\u200D]/gu, '')
+    .trim();
+}
 async function apiError(response) {
   const raw = await response.text();
   try { return JSON.parse(raw).error || `La API respondió HTTP ${response.status}.`; }
@@ -155,7 +160,8 @@ function PracticeApp({ user }) {
   async function speak(message) {
     if (speechLoadingId === message.id) return;
     if (speakingId === message.id && audioPlayer.current) { audioPlayer.current.pause(); setSpeakingId(null); return; }
-    const text = message.text.replace(/✍️[\s\S]*/u, '').trim();
+    const text = spokenText(message.text);
+    if (!text) return showToast('No hay una frase para reproducir antes de la corrección.');
     const cacheKey = `${voice}:${message.id}`;
     let url = audioCache.current.get(cacheKey);
     if (!url) {
