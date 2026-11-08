@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Activity, AudioLines, BookOpen, Check, ChevronDown, CircleHelp, Clock3, Coffee, Compass, Headphones, Mic, MoreHorizontal, Plus, Send, Settings2, Sparkles, Volume2, X } from 'lucide-react';
+import AuthPage from './AuthPage.jsx';
+import { supabase, supabaseConfigured } from './lib/supabase.js';
 
 const scenarios = [
   { id: 'cafe', title: 'En un café', sub: 'Pide algo como un local', icon: Coffee, tag: 'A2 · 5 min', color: 'peach', initial: 'Bonjour ! Bienvenue au Café de Flore. Qu’est-ce que je vous sers aujourd’hui ?' },
@@ -11,8 +13,16 @@ const voices = [
   ['Zephyr', 'Brillante'], ['Puck', 'Animada'], ['Charon', 'Informativa'], ['Kore', 'Firme'], ['Fenrir', 'Enérgica'], ['Leda', 'Juvenil'], ['Orus', 'Firme'], ['Aoede', 'Ligera'], ['Callirrhoe', 'Relajada'], ['Autonoe', 'Brillante'], ['Enceladus', 'Aireada'], ['Iapetus', 'Clara'], ['Umbriel', 'Relajada'], ['Algieba', 'Suave'], ['Despina', 'Suave'], ['Erinome', 'Clara'], ['Algenib', 'Grave'], ['Rasalgethi', 'Informativa'], ['Laomedeia', 'Animada'], ['Achernar', 'Dulce'], ['Alnilam', 'Firme'], ['Schedar', 'Serena'], ['Gacrux', 'Madura'], ['Pulcherrima', 'Expresiva'], ['Achird', 'Amable'], ['Zubenelgenubi', 'Casual'], ['Vindemiatrix', 'Gentil'], ['Sadachbia', 'Vivaz'], ['Sadaltager', 'Amable'], ['Sulafat', 'Cálida']
 ];
 const makeMessage = (role, text) => ({ id: `${Date.now()}-${Math.random()}`, role, text });
+async function apiError(response) {
+  const raw = await response.text();
+  try { return JSON.parse(raw).error || `La API respondió HTTP ${response.status}.`; }
+  catch {
+    if (/the page could not be found/i.test(raw)) return 'Vercel no encontró /api/chat. Despliega de nuevo con las funciones api/ incluidas.';
+    return `La API respondió HTTP ${response.status} sin JSON${raw ? `: ${raw.slice(0, 140)}` : '.'}`;
+  }
+}
 
-export default function App() {
+function PracticeApp({ user }) {
   const [scenario, setScenario] = useState(scenarios[0]);
   const [messages, setMessages] = useState([makeMessage('assistant', scenarios[0].initial)]);
   const [input, setInput] = useState('');
@@ -27,6 +37,7 @@ export default function App() {
   const [toast, setToast] = useState('');
   const [started, setStarted] = useState(false);
   const [model, setModel] = useState('Gemini · listo');
+  const [conversationId, setConversationId] = useState(null);
   const bottomRef = useRef(null);
   const recognition = useRef(null);
   const audioCache = useRef(new Map());
@@ -46,15 +57,34 @@ export default function App() {
     const time = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     setActivity(prev => [...prev, { id: `${Date.now()}-${Math.random()}`, time, text, kind }].slice(-40));
   }
-  function selectScenario(item) { setScenario(item); setMessages([makeMessage('assistant', item.initial)]); setActivity([]); setWaitingStatus(''); setStarted(false); startedAt.current = Date.now(); }
+  function selectScenario(item) { setScenario(item); setMessages([makeMessage('assistant', item.initial)]); setActivity([]); setWaitingStatus(''); setConversationId(null); setStarted(false); startedAt.current = Date.now(); }
   async function sendMessage(value = input) {
     const text = value.trim(); if (!text || busy) return;
     const updated = [...messages, makeMessage('user', text)]; setMessages(updated); setInput(''); setBusy(true); setStarted(true);
-    setWaitingStatus('Conectando con Gemini…');
     logActivity('Mensaje enviado; abriendo una solicitud a Gemini.');
     try {
-      const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: updated.map(({ role, text }) => ({ role, content: text })), level: level.slice(0, 2), scenario: scenario.title }) });
-      if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'No se pudo conectar con Gemini.'); }
+      const { data: authData, error: authError } = await supabase.auth.getSession();
+      const accessToken = authData.session?.access_token;
+      if (authError || !accessToken) throw new Error('Tu sesión expiró. Inicia sesión de nuevo.');
+      let activeConversationId = conversationId;
+      if (!activeConversationId) {
+        setWaitingStatus('Guardando tu práctica…');
+        const { data, error } = await supabase.from('practice_sessions').insert({ user_id: user.id, scenario: scenario.title, level: level.slice(0, 2) }).select('id').single();
+        if (error) logActivity(`No se pudo crear el historial en Supabase: ${error.message}`, 'warning');
+        else {
+          activeConversationId = data.id;
+          setConversationId(data.id);
+          logActivity('Sesión de práctica creada en Supabase.', 'success');
+        }
+      }
+      let userMessageInsert = null;
+      if (activeConversationId) {
+        userMessageInsert = supabase.from('practice_messages').insert({ session_id: activeConversationId, user_id: user.id, role: 'user', content: text }).then(result => result);
+      }
+      setWaitingStatus('Conectando con Gemini…');
+      const response = await fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` }, body: JSON.stringify({ messages: updated.map(({ role, text }) => ({ role, content: text })), level: level.slice(0, 2), scenario: scenario.title }) });
+      if (!response.ok) throw new Error(await apiError(response));
+      if (!response.headers.get('content-type')?.includes('text/event-stream')) throw new Error(await apiError(response));
       if (!response.body) throw new Error('El navegador no pudo abrir el registro en tiempo real.');
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -88,6 +118,16 @@ export default function App() {
             setModel(event.fallback ? `Gemini · ${event.model} (respaldo)` : `Gemini · ${event.model}`);
             setWaitingStatus(`Respuesta recibida en ${(event.durationMs / 1000).toFixed(1)} s.`);
             logActivity(`Respuesta de ${event.model} en ${(event.durationMs / 1000).toFixed(1)} s; se probaron ${event.attempts} modelo(s).`, 'success');
+            if (userMessageInsert) {
+              const { error: userSaveError } = await userMessageInsert;
+              if (userSaveError) logActivity(`No se guardó tu mensaje: ${userSaveError.message}`, 'warning');
+              else {
+                const { error: replySaveError } = await supabase.from('practice_messages').insert({ session_id: activeConversationId, user_id: user.id, role: 'assistant', content: event.reply, model: event.model });
+                if (replySaveError) logActivity(`No se guardó la respuesta: ${replySaveError.message}`, 'warning');
+                else logActivity('Mensajes guardados en Supabase.', 'success');
+                await supabase.from('practice_sessions').update({ updated_at: new Date().toISOString() }).eq('id', activeConversationId).eq('user_id', user.id);
+              }
+            }
             if (event.fallback) showToast(`Gemini usó ${event.model} como respaldo.`);
           }
           if (event.type === 'error') {
@@ -120,8 +160,9 @@ export default function App() {
     if (!url) {
       setSpeechLoadingId(message.id);
       try {
-        const response = await fetch('/api/speech', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, voice }) });
-        if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Gemini TTS no pudo generar la voz.'); }
+        const { data: authData } = await supabase.auth.getSession();
+        const response = await fetch('/api/speech', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${authData.session?.access_token || ''}` }, body: JSON.stringify({ text, voice }) });
+        if (!response.ok) throw new Error(await apiError(response));
         url = URL.createObjectURL(await response.blob());
         audioCache.current.set(cacheKey, url);
       } catch (error) {
@@ -147,7 +188,7 @@ export default function App() {
       <button className="nav-item" onClick={() => showToast('Tu progreso aparecerá después de tu primera práctica.')}><BookOpen size={17}/> Mi progreso</button>
       <button className="nav-item" onClick={() => showToast('Próximamente: guarda frases durante tus conversaciones.')}><Headphones size={17}/> Frases guardadas</button>
       <div className="side-label scenario-label">PRÁCTICA RÁPIDA</div><div className="side-scenarios">{scenarios.map(s => <button key={s.id} className={`mini-scenario ${scenario.id === s.id ? 'selected' : ''}`} onClick={() => selectScenario(s)}><span className={`mini-icon ${s.color}`}><s.icon size={15}/></span><span>{s.title}</span></button>)}</div>
-      <div className="sidebar-bottom"><div className="daily-card"><div className="daily-top"><span>Racha de hoy</span><span>🔥 3 días</span></div><div className="streak-row">{['L','M','X','J','V','S','D'].map((d,i) => <span key={i} className={i < 3 ? 'done' : ''}>{i < 3 ? <Check size={12}/> : d}</span>)}</div><div className="daily-caption">Una pequeña charla cada día ✨</div></div><button className="profile" onClick={() => showToast('Perfil de estudiante · nivel A2')}><span className="avatar">M</span><span className="profile-name">Mi espacio<span>Plan gratuito</span></span><MoreHorizontal size={18}/></button></div>
+      <div className="sidebar-bottom"><div className="daily-card"><div className="daily-top"><span>Racha de hoy</span><span>🔥 3 días</span></div><div className="streak-row">{['L','M','X','J','V','S','D'].map((d,i) => <span key={i} className={i < 3 ? 'done' : ''}>{i < 3 ? <Check size={12}/> : d}</span>)}</div><div className="daily-caption">Una pequeña charla cada día ✨</div></div><button className="profile" onClick={() => supabase.auth.signOut()}><span className="avatar">{(user.user_metadata?.display_name || user.email || 'M').charAt(0).toUpperCase()}</span><span className="profile-name">{user.user_metadata?.display_name || user.email}<span>Cerrar sesión</span></span><MoreHorizontal size={18}/></button></div>
     </aside>
     <main className="main-area"><header className="topbar"><div className="breadcrumbs"><span>Práctica</span><span className="crumb-slash">/</span><span className="crumb-current">Conversación libre</span></div><div className="top-actions"><button className="help-button" onClick={() => showToast('Elige una situación, habla o escribe en francés y Camille seguirá la conversación.')}><CircleHelp size={17}/><span>¿Cómo funciona?</span></button><button className="level-select" onClick={setNextLevel}><span className="level-dot"/>{level}<ChevronDown size={14}/></button></div></header>
       <div className="workspace"><section className="practice-column"><div className="practice-heading"><div><div className="eyebrow"><span className="eyebrow-line"/> TU RINCÓN DE FRANCÉS</div><h1>Un poco de francés,<br/><em>un gran paso.</em></h1><p className="intro">Practica a tu ritmo. Camille está aquí para conversar, no para juzgar.</p></div><div className="daily-illustration"><span className="sun-orb"/><span className="flower">✳</span><span className="illustration-line line-one"/><span className="illustration-line line-two"/><span className="coffee-cup">☕</span><span className="illustration-label">bonjour !</span></div></div>
@@ -166,4 +207,23 @@ export default function App() {
           <div className="rail-card goals-card"><div className="goals-heading"><span>Tu mini objetivo</span><MoreHorizontal size={18}/></div><div className="goal-number">{started ? '1' : '0'}<span> / 5 min</span></div><div className="progress-track"><span style={{width: started ? '20%' : '3%'}}/></div><p>Con solo 5 minutos al día<br/>ya estás más cerca ✨</p><div className="goal-footer"><span>Práctica de hoy</span><span>♡</span></div></div>
           <div className="level-card"><span className="level-card-icon">✳</span><div><strong>Tu nivel actual</strong><span>{level.split(' · ')[0]} · {level.split(' · ')[1]}</span></div><button onClick={setNextLevel} aria-label="Cambiar nivel"><ChevronDown size={16}/></button></div><div className="rail-note"><span>✿</span> Petit à petit, l’oiseau fait son nid.<br/><i>Poco a poco se llega lejos.</i></div></aside>
       </div></main>{toast && <div className="toast"><span>✳</span>{toast}<button onClick={() => setToast('')}><X size={14}/></button></div>}</div>;
+}
+
+export default function App() {
+  const [auth, setAuth] = useState({ loading: true, user: null });
+  useEffect(() => {
+    if (!supabaseConfigured || !supabase) { setAuth({ loading: false, user: null }); return; }
+    let mounted = true;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (mounted) setAuth({ loading: false, user: session?.user || null });
+    });
+    supabase.auth.getSession().then(({ data, error }) => {
+      if (mounted) setAuth({ loading: false, user: error ? null : data.session?.user || null });
+    });
+    return () => { mounted = false; subscription.unsubscribe(); };
+  }, []);
+  if (auth.loading) return <div className="auth-loading"><span className="brand-mark">p.</span><span>Comprobando tu sesión…</span></div>;
+  if (!supabaseConfigured) return <AuthPage configured={false}/>;
+  if (!auth.user) return <AuthPage configured/>;
+  return <PracticeApp user={auth.user}/>;
 }

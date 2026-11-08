@@ -3,7 +3,22 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "scripts": { "dev": "concurrently \"npm:server\" \"npm:client\"", "client": "vite --host 0.0.0.0", "server": "node server.js", "build": "vite build", "start": "node server.js" },
-  "dependencies": { "@vitejs/plugin-react": "latest", "concurrently": "latest", "dotenv": "latest", "express": "latest", "lucide-react": "latest", "react": "latest", "react-dom": "latest", "vite": "latest" },
-  "devDependencies": {}
+  "scripts": {
+    "dev": "concurrently \"npm:server\" \"npm:client\"",
+    "client": "vite --host 0.0.0.0",
+    "server": "node server.js",
+    "build": "vite build",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.119.0",
+    "@vitejs/plugin-react": "latest",
+    "concurrently": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "lucide-react": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "vite": "latest"
+  }
 }
