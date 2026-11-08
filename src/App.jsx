@@ -109,8 +109,9 @@ function PracticeApp({ user }) {
           if (event.type === 'retry') {
             const elapsed = event.durationMs ? ` (${(event.durationMs / 1000).toFixed(1)} s)` : '';
             const statusCode = event.status ? `, HTTP ${event.status}` : '';
-            setWaitingStatus(`${event.model} no respondió; probando ${event.nextModel}…`);
-            logActivity(`${event.model} ocupado/no disponible${statusCode}${elapsed}. Cambiando a ${event.nextModel}.`, 'warning');
+            const cause = event.timedOut ? 'agotó el tiempo de espera' : 'ocupado/no disponible';
+            setWaitingStatus(`${event.model} ${event.timedOut ? 'tardó demasiado' : 'no respondió'}; probando ${event.nextModel}…`);
+            logActivity(`${event.model} ${cause}${statusCode}${elapsed}. Cambiando a ${event.nextModel}.`, 'warning');
           }
           if (event.type === 'complete') {
             receivedReply = true;

@@ -18,7 +18,7 @@ La API queda en `http://localhost:3001`. `GEMINI_API_KEY` permanece en el servid
 
 ## Despliegue en Vercel
 
-La carpeta raíz `api/` contiene funciones Vercel para chat, voz y diagnóstico; `server.js` se usa para desarrollo local. En los ajustes del proyecto Vercel configura estas variables para Production (y Preview si corresponde): `GEMINI_API_KEY`, `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`. Añade también `GEMINI_MODELS` solo si quieres cambiar el orden predeterminado. Después de agregar o cambiar variables, crea un nuevo deployment. `/api/health` muestra si Gemini y Supabase quedaron configurados, sin revelar sus claves.
+La carpeta raíz `api/` contiene funciones Vercel para chat, voz y diagnóstico; `server.js` se usa para desarrollo local. En los ajustes del proyecto Vercel configura estas variables para Production (y Preview si corresponde): `GEMINI_API_KEY`, `VITE_SUPABASE_URL` y `VITE_SUPABASE_PUBLISHABLE_KEY`. Añade también `GEMINI_MODELS` o `GEMINI_CHAT_TIMEOUT_MS` si quieres ajustar modelos o espera. Después de agregar o cambiar variables, crea un nuevo deployment. `/api/health` muestra si Gemini y Supabase quedaron configurados, sin revelar sus claves.
 
 ## Supabase: acceso y persistencia
 
@@ -33,7 +33,7 @@ La pantalla de acceso consulta y conserva la sesión de Supabase; sin sesión no
 
 El botón «Escuchar · Gemini TTS» genera la voz bajo demanda con `gemini-3.8-flash-tts` y la guarda en memoria para repetirla sin otra solicitud. Si el modelo está ocupado, prueba `gemini-3.8-flash-lite-tts`; si se alcanza la cuota, la app usa la voz francesa integrada del navegador sin otra llamada a Gemini. El selector ofrece las voces predefinidas de Google AI Studio y conserva la preferencia en este navegador. La tarifa oficial muestra ambos modelos como gratuitos en el nivel gratuito de Gemini API, sujeto a sus límites. El micrófono usa el reconocimiento de voz integrado del navegador.
 
-Durante el chat, el registro visible muestra qué modelo se intenta, cuánto tarda, y cuándo se cambia al siguiente. El servidor también imprime esos intentos en su terminal. Por defecto el chat prueba `gemini-3.8-flash`, `gemini-3.6-flash` y `gemini-3.5-flash-lite`, en ese orden; `GEMINI_MODELS` puede cambiar esa lista.
+Durante el chat, el registro visible muestra qué modelo se intenta, cuánto tarda, y cuándo se cambia al siguiente. El servidor también imprime esos intentos en su terminal. Por defecto el chat prueba `gemini-3.5-flash-lite`, `gemini-3.8-flash` y `gemini-3.6-flash`, en ese orden, con un límite de espera de 8 segundos por modelo. `GEMINI_MODELS` y `GEMINI_CHAT_TIMEOUT_MS` pueden cambiar esa configuración.
 
 ## Cambio automático de modelo
 

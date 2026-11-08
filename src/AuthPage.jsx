@@ -17,7 +17,7 @@ export default function AuthPage({ configured }) {
     setBusy(true); setFeedback(null);
     try {
       if (isSignup) {
-        const { data, error } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: { display_name: displayName.trim() } } });
+        const { data, error } = await supabase.auth.signUp({ email: email.trim(), password, options: { data: { display_name: displayName.trim() }, emailRedirectTo: window.location.origin } });
         if (error) throw error;
         if (!data.session) setFeedback({ type: 'success', text: 'Cuenta creada. Revisa tu correo para confirmar la dirección y luego inicia sesión.' });
         else setFeedback({ type: 'success', text: 'Cuenta creada. ¡Bienvenida a Parlez!' });
